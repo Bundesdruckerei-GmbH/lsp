@@ -1,6 +1,8 @@
 # WE BUILD - Conformance Specification: Authentic Source–QTSP Attribute Data Interface
 
-Version 0.1 (Proposal)
+Version 0.2 (Second Draft)
+
+Changes from 0.1: (1) the SPoV-Proxy role is specified explicitly; (2) deferred response is specified as a mandatory response mode; (3) the HTTP binding is declared sufficient on its own for WE BUILD conformance; (4) the EBWV vocabulary is referenced for attribute identifiers; (5) RFC 9457 problem details is recommended for HTTP error responses; (6) the provider object in responses becomes mandatory; (7) a static API key is allowed as a transitional onboarding mechanism with a mandatory migration path to OAuth 2.0.
 
 ## Table of Contents
 
@@ -13,18 +15,19 @@ Version 0.1 (Proposal)
 	- [6.1 Source onboarding and trust establishment](#61-source-onboarding-and-trust-establishment)
 	- [6.2 Attribute retrieval](#62-attribute-retrieval)
 	- [6.3 Attribute verification](#63-attribute-verification)
-	- [6.4 Failure and recovery](#64-failure-and-recovery)
+	- [6.4 Deferred response](#64-deferred-response)
+	- [6.5 Failure and recovery](#65-failure-and-recovery)
 - [7. Normative Requirements](#7-normative-requirements)
 	- [7.1 Common requirements](#71-common-requirements)
-	- [7.2 QTSP requirements](#72-qtsp-requirements)
-		- [7.2.1 EAA provider proofing obligations](#721-eaa-provider-proofing-obligations)
-	- [7.3 Authentic Source requirements](#73-authentic-source-requirements)
-	- [7.4 Data protection and security](#74-data-protection-and-security)
+	- [7.2 Authentic Source requirements](#72-authentic-source-requirements)
+	- [7.3 QTSP requirements](#73-qtsp-requirements)
+		- [7.3.2 EAA provider proofing obligations](#732-eaa-provider-proofing-obligations)
 - [8. Interface Definitions](#8-interface-definitions)
-	- [8.1 Retrieve](#81-retrieve)
-	- [8.2 Verify](#82-verify)
+	- [8.1 Verify](#81-verify)
+	- [8.2 Retrieve](#82-retrieve)
 	- [8.3 Transport and security binding](#83-transport-and-security-binding)
 - [9. Conformance](#9-conformance)
+- [10. Data protection and security](#10-data-protection-and-security)
 - [References](#references)
 
 # 1. Introduction
@@ -79,6 +82,7 @@ This specification defines the following roles:
 
 - **Authentic Source:** a repository or system under the responsibility of a public-sector body or private entity that contains and provides attributes and is considered a primary source or recognized as authentic under Union or national law, including administrative practice. This definition follows eIDAS and ETSI TS 119 478.
 - **Authentic Source Interface Provider (ASIP):** the provider of the source interface. It may be the Authentic Source itself or an intermediary acting on its behalf; it is responsible for the interface responses it provides.
+- **SPoV-Proxy:** a specific form of ASIP, the Single Point of Verification. It is a pure relay between the QTSP and one or more Authentic Sources: it forwards the request to the responsible source, correlates the request with the eventual response, and, where the source returns an unsealed result, coordinates its sealing. It performs no substantive verification, stores no register data, and makes no verification decision of its own. In the role code it is the "Intermediary acting on behalf of the Authentic Source": it is neither QTSP nor Authentic Source, but the technical bridge between them. A deployment **MAY** use an SPoV-Proxy; where it does, the ASIP requirements in this specification apply to the SPoV-Proxy for the responses it provides, and the SPoV-Proxy **MUST** identify the underlying Authentic Source separately in the response.
 - **QTSP:** a trust service provider that requests attributes or verification from an Authentic Source and uses the response as input to its own proofing and issuance decisions. The QTSP remains responsible for satisfying requirements applicable to its attestation service, including ETSI TS 119 471 where applicable; it does not transfer that responsibility to the Authentic Source.
 - **EAA Service Provider (EAASP) / Qualified EAASP (QEAASP):** the provider of one or more EAA services, qualified or non-qualified. A QTSP performing the issuance role in this specification is subject to the applicable EAASP or QEAASP requirements in ETSI TS 119 471. That standard's service-level requirements are not themselves requirements of the Authentic Source API.
 - **Attestation Subject:** the natural person, legal person, or other entity to which the requested attributes relate. The subject may be represented by a holder or an authorised representative.
@@ -124,10 +128,22 @@ The BU2 scenario cites TS 119 478 for the source interface. A deployment claimin
 4. The Authentic Source returns the binding-defined result for each attribute. Under the HTTP/OAuth binding, TS 119 478 defines `Match`, `NoMatch`, `MatchWithVariation`, and `Unknown`; transport-level errors are distinct from these attribute-level results.
 5. The QTSP evaluates the result under its issuance policy. A positive verification result does not, by itself, establish the QTSP's identity-proofing or overall issuance requirements.
 
-## 6.4 Failure and recovery
+## 6.4 Deferred response
+
+Some Authentic Sources, in particular register-backed sources whose verification involves manual or multi-step processing, cannot answer within the synchronous lifetime of the issuing transaction. This specification therefore makes deferred response a mandatory response mode, not an optional extension.
+
+1. Where the requested data or verification cannot be completed synchronously, the source **MUST** return a well-defined *deferred* outcome rather than a generic timeout, an unavailable-source error, or an empty success:
+   - **ISO 15000 binding:** the source returns the deferred form defined by TS 119 478 clauses 6.2.3.2.3 (Verify) and 6.2.4.3.3 (Retrieve): a `rim:QueryResponse` whose status is set to `urn:oasis:names:tc:ebxmlregrep:ResponseStatusType:Unavailable` in place of the success or failure result, carrying the request's correlation identifier.
+   - **HTTP binding:** TS 119 478 defines no deferred response for the HTTP/OAuth binding; its status-code sets (clauses 6.1.1.2-12 and 6.1.2.2-06) define only `200`, `400`, `401`, `404`, and `501`. An HTTP deployment that must support asynchronous completion **SHALL** define the deferred outcome as a documented extension per 8.3.4, using a dedicated, pre-agreed status and problem type. It **MUST NOT** use `503` to signal an in-progress result.
+2. The deferred outcome **MUST** carry a transaction-correlation identifier that the QTSP can use to obtain or be notified of the eventual result.
+3. The source **MUST** complete the deferred result within the time window agreed in the source-service agreement and deliver it through the binding-defined completion path.
+4. The QTSP **MUST** treat a deferred outcome as an indeterminate, in-progress result, not as a positive or negative decision. It **MUST** retain the transaction context, correlate the eventual result, and only then apply its issuance policy. It **MUST NOT** convert a pending deferred outcome into an issuance decision.
+5. A deferred response is distinct from a temporary transport failure: a deferred outcome is a protocol-level, expected state of the exchange, whereas a temporary failure is an error to be handled under 6.5.
+
+## 6.5 Failure and recovery
 
 1. If authentication, authorisation, request validation, subject resolution, or source processing fails, the source returns a protocol-defined error without disclosing unrelated subject data.
-2. The QTSP distinguishes a definitive negative result from a temporary failure or indeterminate result. It does not convert a timeout, unavailable source, or malformed response into a positive result.
+2. The QTSP distinguishes a definitive negative result from a temporary failure or indeterminate result, and from a deferred (in-progress) response per 6.4. It does not convert a timeout, unavailable source, or malformed response into a positive result.
 3. The QTSP retries only where permitted by the protocol and source-service agreement, using the same transaction context where appropriate and avoiding duplicate or ambiguous processing.
 4. If the failure cannot be resolved within the issuance policy, the QTSP stops or defers issuance and communicates an appropriate outcome through the separate issuance flow.
 
@@ -149,11 +165,12 @@ An Authentic Source Interface Provider conforming to the WE BUILD common baselin
 
 1. provide a `Retrieve` capability for each data set it declares as supported;
 2. return only data it is authorised to disclose and that is within the scope of the request;
-3. identify the interface provider and, where it acts for another entity, the Authentic Source, as required by the selected binding;
+3. identify the interface provider and, where it acts for another entity (including where it is an SPoV-Proxy), the Authentic Source, as required by the selected binding;
 4. ensure that returned data and status represent the source's authoritative records at the time indicated in the response;
 5. protect the confidentiality and integrity of requests and responses and authenticate the requesting QTSP according to the selected binding and service agreement;
-6. use the selected binding's defined success, failure, not-found, and deferred-response behaviour; and
-7. publish or agree the data sets, identifier schemes, supported operations, and operational conditions that it supports.
+6. include the binding-defined *provider* object in every successful `Retrieve` response, identifying the entity that supplied the data; where the ASIP is an intermediary or SPoV-Proxy, the provider object **MUST** identify the underlying Authentic Source distinctly from the ASIP (see 8.3.5);
+7. for any data set whose verification cannot be completed synchronously, support the deferred-response mode of the selected binding (see 6.4) and return the binding's defined deferred outcome (ISO 15000) or the documented HTTP extension (see 8.3.4) rather than a generic timeout or unavailable-source error; and
+8. publish or agree the data sets, identifier schemes, supported operations, and operational conditions that it supports.
 
 An Authentic Source Interface Provider **MAY** provide `Verify` under the WE BUILD common baseline. If it does, it **MUST** return the result semantics required by the selected binding. An implementation claiming TS 119 478 conformance **MUST** provide I2 `Verify` as required by that specification.
 
@@ -167,9 +184,10 @@ A QTSP conforming to this specification **MUST**:
 3. request only attributes necessary for the declared purpose and permitted by the applicable attestation rulebook and legal basis;
 4. ensure that the user's authorization and subject-identification data required by the selected source-interface binding are obtained before making a request;
 5. validate response integrity, source identity, subject binding, result status, and any freshness information provided by the binding before relying on returned data;
-6. assess the response under its own issuance policy and applicable attestation rulebook; a source response does not transfer the QTSP's proofing or issuance responsibility to the source;
-7. not issue an attestation on the basis of a failed, indeterminate, stale, or invalid response unless its applicable policy explicitly permits an alternative evidence path and that path is independently satisfied; and
-8. apply the applicable EAASP or QEAASP requirements of ETSI TS 119 471 for the EAA service it operates.
+6. treat a deferred response per 6.4 as an in-progress, indeterminate state: retain the transaction context, correlate the eventual result via the transaction-correlation identifier, and only then apply its issuance policy, without converting the pending outcome into an issuance decision;
+7. assess the response under its own issuance policy and applicable attestation rulebook; a source response does not transfer the QTSP's proofing or issuance responsibility to the source;
+8. not issue an attestation on the basis of a failed, indeterminate, stale, or invalid response, or on the basis of a pending deferred response, unless its applicable policy explicitly permits an alternative evidence path and that path is independently satisfied; and
+9. apply the applicable EAASP or QEAASP requirements of ETSI TS 119 471 for the EAA service it operates.
 
 ### 7.3.2 EAA provider proofing obligations
 
@@ -199,7 +217,6 @@ The logical operations below are binding requirements. Wire-level endpoint paths
 *Direction:* QTSP → Authentic Source  
 *Operation:* `Verify`  
 *ETSI operation:* I2  
-*Capability:* OPTIONAL under the WE BUILD common baseline; REQUIRED for ETSI TS 119 478 conformance
 *Capability:* OPTIONAL API operation under the WE BUILD common baseline; REQUIRED for ETSI TS 119 478 conformance
 
 When implemented, `Verify` **MUST** follow the selected binding. Where a deployment uses TS 119 478, the request **MUST** include the subject, candidate attribute data, and user-authorization context required by that binding. Any other binding and its request/response mapping and result semantics **MUST** be defined by an applicable WE BUILD conformance specification.
@@ -218,8 +235,8 @@ An implementation **MUST NOT** redefine or collapse the result semantics of the 
 
 Where a deployment uses TS 119 478, the request and response **MUST** follow the selected ETSI binding. Any other binding **MUST** be defined by an applicable WE BUILD conformance specification; conformance to that binding alone **MUST NOT** be claimed as TS 119 478 conformance. Implementations **MUST NOT** assume that fields in one binding map directly to fields in the other.
 
-- **HTTP/OAuth:** I3 uses `POST /retrieve`. The request body contains the requested attribute identifiers; subject identification and user authorization are obtained through I4 and conveyed as specified by the TS 119 478 OAuth flow. A successful response contains the retrieved attributes and provider identification, and identifies the Authentic Source separately when the ASIP is an intermediary. The HTTP status codes and response object **MUST** follow TS 119 478 clause 6.1.2, including its `200`, `400`, `401`, `404`, and `501` semantics.
-- **ISO 15000:** I3 uses the TS 119 478 Retrieve query and response model. The request carries the subject and attribute details and the required request context; the response uses the specified per-attribute `RetrieveResult` and the defined success, failure, or deferred-response form.
+- **HTTP/OAuth:** I3 uses `POST /retrieve`. The request body contains the requested attribute identifiers; subject identification and user authorization are obtained through I4 and conveyed as specified by the TS 119 478 OAuth flow. A successful response contains the retrieved attributes and **MUST** include the provider object per 8.3.5, identifying the underlying Authentic Source separately when the ASIP is an intermediary or SPoV-Proxy. The HTTP status codes and response object **MUST** follow TS 119 478 clause 6.1.2, including its `200`, `400`, `401`, `404`, and `501` semantics. Where the requested data cannot be supplied synchronously and the deployment supports asynchronous completion, the response **MUST** use the deferred-response outcome defined per 6.4 and 8.3.4 rather than a generic error.
+- **ISO 15000:** I3 uses the TS 119 478 Retrieve query and response model. The request carries the subject and attribute details and the required request context; the response uses the specified per-attribute `RetrieveResult` and the defined success, failure, or deferred-response form. The provider identification required by 8.3.5 **MUST** be carried in the binding's source-identification fields.
 
 An applicable WE BUILD conformance specification or source-service agreement **MAY** define additional transaction-correlation or freshness requirements. Such requirements **MUST NOT** require fields to be added to an ETSI message in a way that breaks the selected binding; extensions **MUST** use a mechanism permitted by that binding.
 
@@ -239,15 +256,48 @@ The WE BUILD common baseline in this specification **MUST** require I3 `Retrieve
 
 I1 `Discover` is not required by this specification's common baseline. Where a deployment uses I1, it **MUST** apply the TS 119 478 discovery model for attribute metadata and data-service endpoints. The BU2 EUCC deployment **SHOULD** use the TS 119 478 I3 `Retrieve` operation. A source that claims TS 119 478 conformance **MUST** also implement I2 `Verify`, even if the BU2 issuance flow uses retrieval for a particular transaction.
 
+### 8.3.1 HTTP binding sufficiency
+
+A deployment **MAY** select the HTTP binding alone, or the ISO 15000 binding alone, or both. For WE BUILD conformance, a deployment that selects only the HTTP/OAuth binding and fully implements the WE BUILD common baseline for that binding (including the mandatory `Retrieve`, the deferred-response mode per 6.4, and the provider object per 8.3.5) **MUST** be regarded as fully conformant to this specification. Selecting a single binding **MUST NOT** be treated as a conformance defect; the two bindings are alternative, not complementary, requirements of this specification.
+
+### 8.3.2 Attribute identifier vocabulary
+
+Attribute identifiers **SHOULD** be drawn from the European Business Wallet Vocabulary (EBWV) where an EBWV term exists for the attribute in question. This specification remains format-neutral and vocabulary-neutral at the protocol level: it does not mandate any particular vocabulary, and a deployment **MAY** use another identifier scheme (for example a national or the EU attribute catalogue, Implementing Regulation (EU) 2025/1569) for the same attribute. Where multiple vocabularies are in use, the deployment **MUST** document the mapping between the EBWV term and the identifier it actually exchanges.
+
+### 8.3.3 User authorization and access token
+
+For the HTTP/OAuth binding, user authorization and subject binding follow the TS 119 478 OAuth flow. The deployment **MUST** bind each request to the intended subject and to the user's authorization for that request.
+
+### 8.3.4 Error and deferred-response payloads (HTTP)
+
+For the HTTP binding, error and non-success responses **SHOULD** use problem details per [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) (`application/problem+json`) to convey a machine-readable reason, a stable problem type, and, where applicable, the transaction-correlation identifier.
+
+TS 119 478 does not define a deferred response for the HTTP/OAuth binding. An HTTP deployment that needs asynchronous completion **SHALL** define the deferred outcome as a documented extension, consistent with TS 119 478 clause 6.1 (the OpenAPI specification in its Annex B is the place to record the extension). The extension **SHOULD** use a reserved `2xx`-class status (for example `202 Accepted`) together with a dedicated RFC 9457 problem type and the transaction-correlation identifier, so that the deferred outcome is unambiguously distinguishable from both a generic server error and from a `200` carrying a final result. A `401` response **MAY** be returned without a body. A `503` **MUST NOT** be used to signal an in-progress, deferred result.
+
+### 8.3.5 Provider object
+
+Every successful `Retrieve` response **MUST** contain a *provider* object that identifies the entity that supplied the data. At minimum the provider object **MUST** carry the legal name of the provider and at least one unambiguous identifier with its type. Where the ASIP is an intermediary or SPoV-Proxy, the provider object **MUST** additionally identify the underlying Authentic Source distinctly from the ASIP, so that the QTSP can establish which authoritative source the data actually originates from. The exact field names and structure of the provider object **MUST** follow the selected binding where the binding defines them; where the binding does not define a provider object, an applicable WE BUILD conformance specification **SHALL** define one consistent with this requirement.
+
+### 8.3.6 Transitional static API key
+
+The target authentication mechanism for the HTTP binding is OAuth 2.0 with client authentication as specified by TS 119 478. To allow an Authentic Source to onboard a QTSP before that full OAuth 2.0 setup is in place, the source **MAY** accept a transitional, static API key (or bearer token) carrying the agreed scopes, provided that:
+
+1. the key is issued to a specific QTSP and registered with explicit `verify` and/or `retrieve` scopes;
+2. access is additionally constrained by an agreed access control (for example a firewall opening on the QTSP's declared addresses);
+3. the deployment documents a migration path and a deadline for replacing the static key with the TS 119 478 OAuth 2.0 mechanism; and
+4. the QTSP **SHALL** migrate to the OAuth 2.0 mechanism within the documented deadline.
+
+A static API key is an onboarding convenience, not an alternative assurance level: it **MUST NOT** replace the other security and data-protection requirements of this specification or of the selected binding.
+
 # 9. Conformance
 
 An implementation conforms to this specification only for the role(s) and data sets it declares, and only where it meets the applicable requirements in Section 7 and supports the relevant flows in Section 6.
 
-An **Authentic Source Interface Provider** conforms to the WE BUILD common baseline if it provides `Retrieve` for each declared data set and meets the requirements in Section 7.3. `Verify` support is declared separately and is optional unless another applicable WE BUILD conformance specification requires it.
+An **Authentic Source Interface Provider** (including an SPoV-Proxy) conforms to the WE BUILD common baseline if it provides `Retrieve` for each declared data set, supports the deferred-response mode per 6.4, includes the provider object per 8.3.5, and meets the requirements in Section 7.2. `Verify` support is declared separately and is optional unless another applicable WE BUILD conformance specification requires it.
 
 A provider claiming **ETSI TS 119 478 conformance** must additionally implement I2 `Verify`, select at least one of the two ETSI bindings, and satisfy all applicable requirements of the selected binding, including its user authorization and access-control requirements. WE BUILD conformance alone does not imply ETSI conformance.
 
-A **QTSP** conforms to this specification for the source and data sets it supports if it implements the `Retrieve` client, meets the QTSP requirements in Section 7.2, and satisfies applicable ETSI TS 119 471 requirements for the attestation service it operates. A claim of TS 119 478 conformance additionally requires compliance with the TSP requirements in the selected TS 119 478 binding.
+A **QTSP** conforms to this specification for the source and data sets it supports if it implements the `Retrieve` client, handles deferred responses per 6.4, meets the QTSP requirements in Section 7.3, and satisfies applicable ETSI TS 119 471 requirements for the attestation service it operates. A claim of TS 119 478 conformance additionally requires compliance with the TSP requirements in the selected TS 119 478 binding.
 
 Conformance claims **MUST** identify:
 
@@ -258,7 +308,7 @@ Conformance claims **MUST** identify:
 
 Other applicable WE BUILD conformance specifications **MAY** define stricter requirements for specific use cases. They **MUST NOT** weaken the mandatory requirements in this specification.
 
-# 10.  Data protection and security
+# 10. Data protection and security
 
 The QTSP and Authentic Source Interface Provider **MUST**:
 
@@ -280,3 +330,9 @@ Where the deployment uses the TS 119 478 HTTP/OAuth binding, the implementation 
 [3] ETSI, *TS 119 411-8, Electronic Signatures and Trust Infrastructures (ESI); Policy and security requirements for Trust Service Providers issuing certificates; Part 8: Access Certificate Policy for EUDI Wallet Relying Parties*. Applicable edition to be identified by the deployment.
 
 [4] WE BUILD Consortium, *Specification Scenario – Issuance of EU Company Certificate, EUCC*, BU2, QTSP-powered issuance flow, branch `Specifications_issuanceEUCC_QTSP-powered-flow_update` (2026).
+
+[5] WE BUILD Consortium, *European Business Wallet Vocabulary (EBWV) v0.1*, WP4 semantics group. Reference vocabulary for attribute identifiers (see 8.3.2).
+
+[6] RFC 9457, *Problem Details for HTTP APIs*. Recommended error format for the HTTP binding (see 8.3.4).
+
+[7] European Commission, *Implementing Regulation (EU) 2025/1569 on verification of attributes against authentic sources*. Alternative attribute catalogue (see 8.3.2).
