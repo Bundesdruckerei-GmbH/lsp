@@ -1,8 +1,6 @@
 # WE BUILD - Conformance Specification: Authentic Source–QTSP Attribute Data Interface
 
-Version 0.2 (Second Draft)
-
-Changes from 0.1: (1) the SPoV-Proxy role is specified explicitly; (2) deferred response is specified as a mandatory response mode; (3) the HTTP binding is declared sufficient on its own for WE BUILD conformance; (4) the EBWV vocabulary is referenced for attribute identifiers; (5) RFC 9457 problem details is recommended for HTTP error responses; (6) the provider object in responses becomes mandatory; (7) a static API key is allowed as a transitional onboarding mechanism with a mandatory migration path to OAuth 2.0.
+Version 0.3 
 
 ## Table of Contents
 
@@ -83,6 +81,8 @@ This specification defines the following roles:
 - **Authentic Source:** a repository or system under the responsibility of a public-sector body or private entity that contains and provides attributes and is considered a primary source or recognized as authentic under Union or national law, including administrative practice. This definition follows eIDAS and ETSI TS 119 478.
 - **Authentic Source Interface Provider (ASIP):** the provider of the source interface. It may be the Authentic Source itself or an intermediary acting on its behalf; it is responsible for the interface responses it provides.
 - **SPoV-Proxy:** a specific form of ASIP, the Single Point of Verification. It is a pure relay between the QTSP and one or more Authentic Sources: it forwards the request to the responsible source, correlates the request with the eventual response, and, where the source returns an unsealed result, coordinates its sealing. It performs no substantive verification, stores no register data, and makes no verification decision of its own. In the role code it is the "Intermediary acting on behalf of the Authentic Source": it is neither QTSP nor Authentic Source, but the technical bridge between them. A deployment **MAY** use an SPoV-Proxy; where it does, the ASIP requirements in this specification apply to the SPoV-Proxy for the responses it provides, and the SPoV-Proxy **MUST** identify the underlying Authentic Source separately in the response.
+
+  The SPoV-Proxy serves a specific purpose: where a single organisation operates several Authentic Sources for the same attestation (for example, where the company register holds the basic company data while a separate signature or seal register holds the representative-authorisation data), the SPoV-Proxy lets the QTSP address one logical endpoint and present a single data set, while the SPoV-Proxy relays each part of the request to the responsible underlying source. It is an internal, organisation-specific collection point, and it is distinct from the EU digital directory of attributes: this specification neither provides nor assumes any such directory, and the SPoV-Proxy **MUST** continue to identify the underlying Authentic Source separately even where it is used purely to aggregate several in-house sources.
 - **QTSP:** a trust service provider that requests attributes or verification from an Authentic Source and uses the response as input to its own proofing and issuance decisions. The QTSP remains responsible for satisfying requirements applicable to its attestation service, including ETSI TS 119 471 where applicable; it does not transfer that responsibility to the Authentic Source.
 - **EAA Service Provider (EAASP) / Qualified EAASP (QEAASP):** the provider of one or more EAA services, qualified or non-qualified. A QTSP performing the issuance role in this specification is subject to the applicable EAASP or QEAASP requirements in ETSI TS 119 471. That standard's service-level requirements are not themselves requirements of the Authentic Source API.
 - **Attestation Subject:** the natural person, legal person, or other entity to which the requested attributes relate. The subject may be represented by a holder or an authorised representative.
@@ -157,7 +157,7 @@ An implementation claiming conformance **MUST**:
 2. bind each request and response to the intended subject, requested data set, purpose, and issuance transaction, using the mechanisms defined by that binding;
 3. distinguish successful, partially successful, negative, indeterminate, and temporary-failure outcomes wherever the binding supports those distinctions;
 4. reject malformed, unauthenticated, unauthorised, or context-mismatched messages; and
-5. preserve sufficient transaction evidence to demonstrate what was requested, which source responded, when the exchange occurred, and what result was returned, subject to applicable data-protection and retention requirements.
+5. preserve sufficient transaction evidence to demonstrate what was requested, which source responded, when the exchange occurred, and what result was returned, subject to applicable data-protection and retention requirements. This evidence is exchange metadata about the interaction (for example the requested attribute identifiers, the response status, the correlation identifier, the timestamps, and the identity of the responding source); it is not the register or source data itself. An SPoV-Proxy that performs no substantive verification and stores no register data may satisfy this requirement by retaining only such exchange metadata, including where it relays between several in-house Authentic Sources; retention of evidence therefore does not conflict with the SPoV-Proxy role definition in 4.
 
 ## 7.2 Authentic Source requirements
 
@@ -196,7 +196,7 @@ When acting as an EAASP, the QTSP **MUST**, in accordance with its EAA service p
 1. verify the identity of the EAA Subject and/or EAA Subscriber and ensure that the attributes and attribute subject correspond to the EAA Subject;
 2. where the EAA Subject and EAA Subscriber differ, verify the Subscriber and obtain and verify evidence of the Subscriber's authority to act for the Subject;
 3. where attributes are validated against an Authentic Source, verify the identity of that source or of the recognised intermediary acting for it;
-4. request only the minimum data necessary for issuance, verify the attributes required by the EAA policy against the source or sources specified by that policy, and avoid verifying identity attributes that are not necessary for issuance; and
+4. request only the data necessary for the purpose of issuance of the attestation according to the applicable rulebook definition, verify the attributes required by the EAA policy against the source or sources specified by that policy, and avoid verifying attributes that are not necessary for the declared purpose; and
 5. define the attributes to be verified through the EAA policy for the attestation.
 
 When acting as a QEAASP, the QTSP **MUST** verify the authenticity of the requested attributes for the identified EAA Subject against the relevant national Authentic Source or an intermediary recognised at national level, as required by the applicable EAA policy. This verification **SHOULD** be electronic where possible. These requirements apply regardless of whether the source interaction uses `Retrieve`, `Verify`, or another permitted evidence path; they do not make the API `Verify` operation mandatory under the WE BUILD common baseline.
